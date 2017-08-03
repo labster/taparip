@@ -1,13 +1,11 @@
+use v5.20;
 use strict;
 use warnings;
 use Mojo::UserAgent;
-use Data::Dumper;
-use feature 'say';
-use utf8;
+use Mojo::DOM;
 use Carp;
 use Time::HiRes 'usleep';
 use DBI;
-use Mojo::DOM;
 use Date::Manip;
 use List::Util qw<shuffle>;
 
@@ -17,44 +15,55 @@ my $ua = Mojo::UserAgent->new;
 $| = 1;
 
 # Site Configuration
-#http://domain.yuku.com/viewtopic.php?t=11571&start=0
-my $domain = 'domain.yuku.com';
-my $api_path = 'viewtopic.php';
-# this is the name of the folder to save the files
-my $projectname    = "dwforums";
-my $posts_per_page = 20;
+#     http://domain.yuku.com/viewtopic.php?t=11571&start=0
+my $domain         = 'domain.yuku.com';
+my $api_path       = 'viewtopic.php';
+# This is the path of where the database file will be created
+# (If you use a relative path, you should keep running it from the same working directory)
+my $db_file        = "$domain.sqlite";
 # Select the topics you wish to grab.  The topic ids are part of the URL, like
-# http://domain.yuku.com/hey-guise!-t152-s60.html
+#     http://domain.yuku.com/hey-guise!-t152-s60.html
 # This is topic id 152, starting at post #61
 my $start_topic    = 1;
 my $end_topic      = 10000;
-# optionally add a delay (in microseconds) between requests to 
-# prevent problems if they throttle you
+my $posts_per_page = 20;
+# Or override this by asking for a list of specific thread numbers
+my @get_topics     = ();
+# Download the listed topics more than once, boolean
+# Use this to grab topics that have had new posts since your last rip
+# (which you should probably specifically identify in @get_topics, because it's not magic)
+my $repeat_thread  = 0;
+# optionally add a delay (in microseconds) between requests to
+# prevent problems if they throttle you (download only)
 my $delay          = 2_000_000;
 # verbose messages during run?
 my $verbose        = 1;
 
-
+# The Actual program
 #####################
 my $root_url = "http://$domain/$api_path";
-say "Gathering data from $root_url";
 
-sub slurp { local $/ = undef; open my $fh, '<:encoding(UTF-8)', shift; my $c = <$fh>; close $fh; return $c }
-my $db_file = "$projectname.sqlite";
+print @ARGV ? "Reading from " . scalar @ARGV . " files"
+    : "Gathering data from $root_url";
 
 my $dbh = get_db($db_file);
-
 my %seen_users = map {$_->[0] => 1} $dbh->selectall_arrayref("SELECT username FROM users")->@*;
-my %seen_threads = map {$_->[0] => 1} $dbh->selectall_arrayref("SELECT tid FROM threads UNION SELECT tid FROM bogusthreads UNION SELECT tid FROM unauthorized")->@*;
+my %seen_threads = map {$_->[0] => 1}
+    $dbh->selectall_arrayref("SELECT tid FROM threads UNION SELECT tid FROM bogusthreads UNION SELECT tid FROM unauthorized")->@*
+    unless $repeat_thread;
 
-for my $topic (shuffle $start_topic .. $end_topic) {
-    download_thread( $topic ) unless $seen_threads{$topic};
+# The main loop
+if (@ARGV) {
+    for my $filename (@ARGV) {
+        extract_posts( Mojo::DOM->new( slurp $filename ) );
+    }
+} else {
+    my @topic_list = scalar(@get_topics) ? @get_topics : ($start_topic .. $end_topic );
+    for my $topic (shuffle @topic_list) {
+        download_thread( $topic ) unless $seen_threads{$topic};
+    }
 }
 
-exit;
-
-my $dom = Mojo::DOM->new( slurp "/Users/brent/Desktop/11517-1.html" );
-extract_posts($dom);
 
 sub download_thread {
     my ($topic, $start) = @_;
@@ -121,7 +130,7 @@ sub extract_posts {
     $dom->find('.post')->each( sub {
         my $post = shift;
         my $pid = substr( $post->attr('id'), 1);
-        
+
         my $count   = substr( $post->at('.author a span')->text, 1) - 1;
         my $datestr = $post->at('.author a')->text;
         my $date = ParseDateString($datestr);
@@ -170,7 +179,6 @@ sub extract_posts {
     });
 
     return $savecount;
-
 }
 
 sub get_db {
@@ -178,6 +186,7 @@ sub get_db {
     my $db_exists = -e $db_file;
     my $dbh = DBI->connect("dbi:SQLite:dbname=$db_file","","");
     unless ($db_exists) {
+        # Build the DB schema
         $dbh->do(q/
         CREATE TABLE threads (
             tid INT PRIMARY KEY,
@@ -216,7 +225,11 @@ sub get_db {
             tid INT PRIMARY KEY
         )/) or die $dbh->errstr;
 
+        # Tapatalk calls anon users 'Guest', and we don't want to look for their info so as to avoid script dying in a fire lol
         $dbh->do(q/ INSERT INTO users VALUES ('Guest', 0, 0, 'undef') /);
     }
     return $dbh;
 }
+
+# One-liner to read in an entire file in UTF-8, because why add a File::Slurp dependency
+sub slurp { local $/ = undef; my $fn = shift; open my $fh, '<:encoding(UTF-8)', $fn or die "Cannot read file $fn"; my $c = <$fh>; close $fh; return $c }
