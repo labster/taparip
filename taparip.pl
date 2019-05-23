@@ -1,4 +1,4 @@
-use v5.20;
+use v5.18;
 use strict;
 use warnings;
 use Mojo::UserAgent;
@@ -47,9 +47,9 @@ print @ARGV ? "Reading from " . scalar @ARGV . " files"
     : "Gathering data from $root_url";
 
 my $dbh = get_db($db_file);
-my %seen_users = map {$_->[0] => 1} $dbh->selectall_arrayref("SELECT username FROM users")->@*;
+my %seen_users = map {$_->[0] => 1} @{ $dbh->selectall_arrayref("SELECT username FROM users") };
 my %seen_threads = map {$_->[0] => 1}
-    $dbh->selectall_arrayref("SELECT tid FROM threads UNION SELECT tid FROM bogusthreads UNION SELECT tid FROM unauthorized")->@*
+    @{ $dbh->selectall_arrayref("SELECT tid FROM threads UNION SELECT tid FROM bogusthreads UNION SELECT tid FROM unauthorized") }
     unless $repeat_thread;
 
 # The main loop

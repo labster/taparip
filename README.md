@@ -22,7 +22,7 @@ error messages?  Do you want a backup of your forum in case it hits the
 fan yet again?  This software also for you.
 
 ## Requirements
-* Perl 5.20 or higher.  Mainly because I like postfix dereferencing.  If you need a lower version I'll grudgingly take it out.  But also consider [Perlbrew](https://perlbrew.pl/) to get a new version, which can also build cpanm easily.
+* Perl 5.18 or higher.  (I grudgingly removed postfix dereferencing, but really there's no excuse being more than 5 versions behind, Apple.)  But also consider [Perlbrew](https://perlbrew.pl/) to get a new version, which can also build cpanm easily.
 * [Sqlite 3](http://sqlite.org/download.html) is probably already installed on your system if you're considering this
 * A few perl modules from CPAN.  If you have `cpanm` installed, just do: `cpanm Mojo::UserAgent Carp DBI Date::Manip`.  Seriously Mojolicious' Mojo::DOM is great, I learned a lot from this project.
 * A sense of wonder and adventure

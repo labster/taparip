@@ -1,6 +1,6 @@
 use strict;
 use warnings;
-use v5.20;
+use v5.18;
 use DBI;
 use Mojo::DOM;
 use List::Util qw<any reduce>;
