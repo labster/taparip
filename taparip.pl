@@ -38,10 +38,46 @@ my $repeat_thread  = 0;
 my $delay          = 2_000_000;
 # verbose messages during run?
 my $verbose        = 1;
+# Use login (currently untested)
+my $username = '';
+my $password = '';
 
 # The Actual program
 #####################
-my $root_url = "http://$domain/$api_path";
+my $root_url = "https://$domain/$api_path";
+
+if ($username and not @ARGV) {
+    $ua->get("https://$domain");
+    my ($sid, $sid_backup);
+    my @cookies = $ua->cookie_jar->all;
+    for (@cookies) {
+        if ($_->name =~ /_sid^/) {
+            $sid = $_->value;
+        }
+        if ($_->name eq 'PHPSESSID') {
+            $sid_backup = $_->value;
+        }
+    }
+    $sid ||= $sid_backup;
+    print "Logging in with user: $username, session_id: $sid\n";
+    # Form POST (application/x-www-form-urlencoded)
+    my $res = $ua->post("https://$domain/ucp.php?mode=login" => form => {
+        username => $username,
+        password => $password,
+        login    => 'Login',
+        redirect => 'viewtopic.php',
+        sid      => $sid,
+    })->res;
+    if ($res->code eq '200') {
+        print "Login failed\n"; # should have redirected
+        print "Proceeding anyway...\n";
+    }
+    else {
+        print "Login successful\n";
+    }
+}
+
+
 
 print @ARGV ? "Reading from " . scalar @ARGV . " files"
     : "Gathering data from $root_url";
