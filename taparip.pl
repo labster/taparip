@@ -49,8 +49,8 @@ my $root_url = "https://$domain/$api_path";
 if ($username and not @ARGV) {
     $ua->get("https://$domain");
     my ($sid, $sid_backup);
-    my @cookies = $ua->cookie_jar->all;
-    for (@cookies) {
+    my $cookies = $ua->cookie_jar->all;
+    for (@$cookies) {
         if ($_->name =~ /_sid^/) {
             $sid = $_->value;
         }
