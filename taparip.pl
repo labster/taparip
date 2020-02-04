@@ -129,7 +129,7 @@ sub download_thread {
     print " - downloaded - ";
 
     my $dom = $res->dom();
-    if ($dom->at('#page-body .login_container')) {
+    if ($dom->at('.login-body')) {
         $dbh->do("INSERT OR IGNORE INTO unauthorized VALUES (?)", undef, $topic);
         say "UNAUTHORIZED THREAD";
         return undef;
