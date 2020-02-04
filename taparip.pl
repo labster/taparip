@@ -157,8 +157,14 @@ sub extract_posts {
 
     # Get topic information, even if we already have it
  my $title = $dom->find('.topic-title a')->[0]->text();
-    my $topic_id = $dom->find('link[rel="alternate"][title^="Feed - Topic -"]')->first->attr('href');
-    $topic_id =~ s|^.*?/topic/(\d+).*$|$1|s;
+    my $topic_id = $dom->find('link[rel="alternate"][title^="Feed - Topic -"]')->first;
+if (defined $topic_id) {
+$topic_id = $topic_id->attr('href');
+    $topic_id =~ s|^.*?/topic/(\d+).*$|$1|s; }
+#fallback
+else {
+$topic_id = $dom->at('.action-bar input')->attr('value');
+}
     my $forumid = $dom->find('#nav-breadcrumbs .crumb:last-child')->last->attr('data-forum-id');
     say $title;
 
