@@ -7,6 +7,7 @@ use Carp;
 use Time::HiRes 'usleep';
 use DBI;
 use Date::Manip;
+use Date::Manip::Date;
 use List::Util qw<shuffle>;
 
 binmode STDOUT, ':utf8';
@@ -16,31 +17,33 @@ $| = 1;
 
 # Site Configuration
 #     http://domain.yuku.com/viewtopic.php?t=11571&start=0
-my $domain         = 'domain.yuku.com';
+my $domain         = 'www.tapatalk.com/groups/example_forum/';
 my $api_path       = 'viewtopic.php';
 # This is the path of where the database file will be created
 # (If you use a relative path, you should keep running it from the same working directory)
-my $db_file        = "$domain.sqlite";
+my $db_file        = "/home/user/Downloads/Forum.db";
 # Select the topics you wish to grab.  The topic ids are part of the URL, like
 #     http://domain.yuku.com/hey-guise!-t152-s60.html
 # This is topic id 152, starting at post #61
 my $start_topic    = 1;
-my $end_topic      = 10000;
+my $end_topic      = 1999;
 my $posts_per_page = 20;
 # Or override this by asking for a list of specific thread numbers
-my @get_topics     = ();
+my @get_topics     = (); # (1, 2000)
 # Download the listed topics more than once, boolean
 # Use this to grab topics that have had new posts since your last rip
 # (which you should probably specifically identify in @get_topics, because it's not magic)
-my $repeat_thread  = 0;
+my $repeat_thread  = 1;
 # optionally add a delay (in microseconds) between requests to
 # prevent problems if they throttle you (download only)
 my $delay          = 2_000_000;
 # verbose messages during run?
 my $verbose        = 1;
-# Use login (currently untested)
-my $username = '';
-my $password = '';
+# Use login (should work)
+my $username = ''; # 'Web-Admin'
+my $password = ''; #'A39FJ9,0'
+# Leave empty
+my $authorz = '';
 
 # The Actual program
 #####################
@@ -61,7 +64,7 @@ if ($username and not @ARGV) {
     $sid ||= $sid_backup;
     print "Logging in with user: $username, session_id: $sid\n";
     # Form POST (application/x-www-form-urlencoded)
-    my $res = $ua->post("https://$domain/ucp.php?mode=login" => form => {
+    my $res = $ua->post("https://$domain/ucp.php?mode=login&import_login=1" => form => {
         username => $username,
         password => $password,
         login    => 'Login',
@@ -126,7 +129,7 @@ sub download_thread {
     print " - downloaded - ";
 
     my $dom = $res->dom();
-    if ($dom->at('#page-body .login_container')) {
+    if ($dom->at('.login-body')) {
         $dbh->do("INSERT OR IGNORE INTO unauthorized VALUES (?)", undef, $topic);
         say "UNAUTHORIZED THREAD";
         return undef;
@@ -153,9 +156,15 @@ sub extract_posts {
     my $dom = shift;
 
     # Get topic information, even if we already have it
-    my $title = $dom->find('.topic-title a')->[0]->text();
-    my $topic_id = $dom->find('link[rel="alternate"][title^="Feed - Topic -"]')->first->attr('href');
-    $topic_id =~ s|^.*?/topic/(\d+).*$|$1|s;
+ my $title = $dom->find('.topic-title a')->[0]->text();
+    my $topic_id = $dom->find('link[rel="alternate"][title^="Feed - Topic -"]')->first;
+if (defined $topic_id) {
+$topic_id = $topic_id->attr('href');
+    $topic_id =~ s|^.*?/topic/(\d+).*$|$1|s; }
+#fallback
+else {
+$topic_id = $dom->at('.action-bar input')->attr('value');
+}
     my $forumid = $dom->find('#nav-breadcrumbs .crumb:last-child')->last->attr('data-forum-id');
     say $title;
 
@@ -163,49 +172,75 @@ sub extract_posts {
         $topic_id, $forumid, $title);
 
     my $savecount = 0;
-    $dom->find('.post')->each( sub {
+    $dom->find('.postrow')->each( sub {
         my $post = shift;
-        my $pid = substr( $post->attr('id'), 1);
-
+        my $pid = substr( $post->attr('id'), 2);
         my $count   = substr( $post->at('.author a span')->text, 1) - 1;
-        my $datestr = $post->at('.author a')->text;
-        my $date = ParseDateString($datestr);
+        my $datestr = $post->at('.timespan')->attr('title');
+my @datestrings = split / - /, $datestr;
+my $dater = "$datestrings[1] $datestrings[0]";
+        my $date = ParseDateString($dater);
         my $timestamp = UnixDate($date, '%s');
+        my $author = $post->at('.avatar-username-inner .thread-user-name a');
+if (defined $author && $author ne '') { $authorz = $author->text(); $author = $authorz; }
+else { $author = $authorz; }
 
-        my $author = $post->at('.avatar-username .username, .avatar-username .username-coloured')->text;
-
-        # Tapatalk hides the post title in an link in a comment, WRYYYYYYYY . ('Y' x 40)
-        my $titlecomment = $post->at('.postbody > div:first-child > h3:first-child')->child_nodes->first->content;
-        my $posttitle = Mojo::DOM->new( $titlecomment )->at('a')->text;
+# We have post titles again now, and it might be easier than before.
+my $posttitle = $post->at('.post-title');
+if (defined $posttitle && $posttitle ne '') { $posttitle = $posttitle->text(); }
 
         # were we edited?
-        my $edit_count = 0;
+        my $edit_count = -1;
         my ($last_editor, $edit_time);
-        if (my $notice = $post->at('.notice') ) {
-            my $editnotice = $notice->text();
-            if ($editnotice =~ /on (\d.*?), edited (\d+)/) {
-                $edit_count = $2;
-                my $edate = ParseDateString($1);
-                $edit_time = UnixDate($edate, '%s');
-                $last_editor = $post->at('.notice .username, .notice .username-coloured')->text;
-            }
-        }
 
+# The Great AJAX Adventure
+        if (my $notice = $post->at('.notice') ) {
+    my $eres = $ua->get("https://$domain/app.php/history/getposthistory?postid=$pid")->res;
+    my $adom = $eres->dom();
+    if ($adom->at("#historyline_$pid")) {
+$last_editor = $adom->at('a')->text;
+my $edittakeone = $adom->at("div + *")->text;
+my @editstrings = split / on /, $edittakeone;
+@editstrings = split / - /, $editstrings[1];
+my $editor = "$editstrings[1] $editstrings[0]";
+        my $edate = ParseDateString($editor);
+        $edit_time = UnixDate($edate, '%s');
+    $adom->find("div")->each( sub {
+$edit_count++;});
+
+    }
+# End of the Great AJAX Adventure
+        }
 
         my $content = $post->at('.content')->content;
         my $sig = $post->at('.signature');
         my $signature = $sig ? $post->at('.signature')->content : undef;
+#say "PID: $pid";
+#say "TOPICID: $topic_id";
+#say "COUNT: $count";
+#say "AUTHOR: $author";
+#say "TIMESTAMP: $timestamp";
+#say "EDITCOUNT: $edit_count";
+#say "LASTEDITOR: $last_editor";
+#say "EDITTIME: $edit_time";
+#say "POSTTITLE: $posttitle";
+#say "COOONTEEEEENT: $content";
+#say "SIIIGNATURE: $signature";
         $dbh->do('INSERT OR IGNORE INTO posts (pid, topic, seq, author, utime, edit_count, edit_user, edit_time, post_title, content, signature)
             VALUES ( ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', undef,
             $pid, $topic_id, $count, $author, $timestamp, $edit_count, $last_editor, $edit_time, $posttitle, $content, $signature
         );
+if ($dbh->err) { die "Import failed: $dbh-err : $dbh->errstr \n"; }
         ++$savecount;
 
         # If we haven't seen this user yet, add her to the DB
         unless ($seen_users{$author}) {
-            my $join_date = UnixDate( ParseDateString( $post->at('dd.profile-joined')->text ), "%s" );
-            my $rank = $post->at('dd.profile-rank')->text;
-            my $post_count = $post->at('.thread-user-detail .detail-value > a > span')->text;
+            my $join_date = UnixDate( ParseDateString( $post->at('.timespan')->text ), "%s" );
+	# Tapatalk axed usergroup readings for some reason, so for now just skip this... 
+	# keep track of your own staff.
+            # my $rank = $post->at('dd.profile-rank')->text;
+	my $rank = '0';
+            my $post_count = $post->at('.avatar-username-inner .user-statistics .nowrap > span')->text;
             $post_count =~ s/\D//g;
             $dbh->do("INSERT INTO users (username, join_date, post_count, rank) VALUES (?, ?, ?, ?)", undef,
                 $author, $join_date, $post_count, $rank
