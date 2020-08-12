@@ -3,7 +3,7 @@ Rip threads from a Tapatalk forum into a Sqlite3 database
 
 ## What is this, then
 
-Tapatalk recently took over Yuku, which, while it had it's problems,
+Tapatalk recently* took over Yuku, which, while it had it's problems,
 still looked like a proper PHPBB host.  Then came Tapatalk, with its
 promises of being mobile friendly, which of course means "modern UX
 with MOAR WHITESPACE and gray-on-gray", hiding tons of details from
@@ -21,11 +21,28 @@ Or are you just put off by the constant stream of 503s and 99 luftbaloon
 error messages?  Do you want a backup of your forum in case it hits the
 fan yet again?  This software also for you.
 
+\* for certain values of "recent".  The appear to be eating other forum
+software companies because it's a low margin industry.
+
 ## Requirements
 * Perl 5.18 or higher.  (I grudgingly removed postfix dereferencing, but really there's no excuse being more than 5 versions behind, Apple.)  But also consider [Perlbrew](https://perlbrew.pl/) to get a new version, which can also build cpanm easily.
 * [Sqlite 3](http://sqlite.org/download.html) is probably already installed on your system if you're considering this
 * A few perl modules from CPAN.  If you have `cpanm` installed, just do: `cpanm Mojo::UserAgent Carp DBI Date::Manip`.  Seriously Mojolicious' Mojo::DOM is great, I learned a lot from this project.
 * A sense of wonder and adventure
+
+## Installation
+
+* Download this repository with the link to the left
+* Consider using something like Homebrew or Apt to install perl, cpanm, or sqlite if you need them.
+* Install modules:
++ If you have `cpanm` installed, you can `cd` into the install directory and run:
+        cpanm --installdeps .
++ If you just have cpan, most likely you can run the `cpan` interactive shell and
+        install Mojo::UserAgent
+        install Carp
+        install DBD::SQLite
+        install Date::Manip
+
 
 ## Configuration
 
@@ -33,6 +50,11 @@ Read the first part of the file `taparip.pl`.  You'll need to specify
 the URL of your site, where you want to save your database, what thread
 ids you want to download, as a list or range.  There's some more stuff,
 but it's documented in the file.
+
+If you're having trouble generating the schema file, you may have luck
+doing:
+         sqlite3 --init schema.sql
+But this should happen automatically in most versions.
 
 ## Execution
 
