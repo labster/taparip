@@ -9,6 +9,7 @@ use DBI;
 use Date::Manip;
 use Date::Manip::Date;
 use List::Util qw<shuffle>;
+use File::Basename qw<dirname>;
 
 binmode STDOUT, ':utf8';
 
@@ -83,7 +84,7 @@ if ($username and not @ARGV) {
 
 
 print @ARGV ? "Reading from " . scalar @ARGV . " files"
-    : "Gathering data from $root_url";
+    : "Gathering data from $root_url\n";
 
 my $dbh = get_db($db_file);
 my %seen_users = map {$_->[0] => 1} @{ $dbh->selectall_arrayref("SELECT username FROM users") };
@@ -255,6 +256,14 @@ if ($dbh->err) { die "Import failed: $dbh-err : $dbh->errstr \n"; }
 sub get_db {
     my $db_file = shift;
     my $db_exists = -e $db_file;
+    unless ($db_exists) {
+        unless (-e dirname $db_file) {
+            die "parent directory of \$db_file '$db_file' does not exist, cannot create schema";
+        }
+        unless (-w dirname $db_file) {
+            die "parent directory of \$db_file '$db_file' is not writable, cannot create schema";
+        }
+    }
     my $dbh = DBI->connect("dbi:SQLite:dbname=$db_file","","");
     unless ($db_exists) {
         # Build the DB schema
