@@ -10,10 +10,13 @@ use Date::Manip;
 use Date::Manip::Date;
 use List::Util qw<shuffle>;
 use File::Basename qw<dirname>;
+use Digest::MD5 qw(md5_hex);
+
 
 binmode STDOUT, ':utf8';
 
 my $ua = Mojo::UserAgent->new;
+my $cache_d = 'cache/';
 $| = 1;
 
 # Site Configuration
@@ -104,17 +107,85 @@ if (@ARGV) {
     }
 }
 
+sub cache_get {
+    my ($url) = @_;
+
+    my $md5 = md5_hex($url);
+    my $cache_f = "$cache_d/$md5";
+
+    if (-e $cache_f && -M $cache_f < 1) {
+			  open(my $fh, '<', $cache_f) or die "Can't open $cache_f: $!";
+					my $content = do { local $/; <$fh> };
+					close($fh);
+					return Mojo::DOM->new($content);
+		}
+}
+
+sub cache_put {
+    my ($filename, $mojo_object) = @_;
+    my $fh;
+
+    my $md5 = md5_hex($filename);
+    my $cache_file = "$cache_d/$md5";
+
+    # Extract content from Mojo object if available
+    my $content = defined $mojo_object ? $mojo_object->result->body : '';
+
+    # Write content to cache file
+	  unless (open($fh, '>', $cache_file)) {
+        die "Could not open file '$cache_file' for writing: $!";
+    }
+
+    # Write content to the file handle
+    print $fh $content;
+
+    # Close the file handle
+    close($fh);
+}
+
+sub cget {
+    my ($url) = @_;
+
+    my $content = cget_get($url);
+    if ($content) {
+      return $content;
+		} else {
+   			my $ua = Mojo::UserAgent->new;
+        my $tx = $ua->get($url);
+
+        if (my $res = $tx->success) {
+            cache_put($url, $res);
+
+            return Mojo::DOM->new($content);
+        } else {
+            my ($err, $code) = $tx->error;
+            die "Failed to fetch content for $url: $err (HTTP status code: $code)";
+        }
+    }
+}
+
 
 sub download_thread {
     my ($topic, $start) = @_;
     $start //= 0;
 
     print "looking for thread t=$topic&start=$start";
-    usleep $delay;
-    my $res = $ua->get($root_url, { 'Accept' => 'text/html'}, 'form' => {
-        t => $topic,
-        start => $start
-    })->res;
+
+    my $schema = "$root_url :: $topic :: $start";
+    my $mojo_obj = cache_get($schema);
+
+    if(! $mojo_obj) {
+      usleep $delay;
+      $mojo_obj = $ua->get($root_url, { 'Accept' => 'text/html'}, 'form' => {
+          t => $topic,
+          start => $start
+      });
+      cache_put($schema, $mojo_obj);
+    } else {
+      print "Cache hit for $schema";
+    }
+
+    my $res = $mojo_obj->res;
 
     unless ($res->is_success) {
         if ($res->code eq '404') {
@@ -196,7 +267,7 @@ if (defined $posttitle && $posttitle ne '') { $posttitle = $posttitle->text(); }
 
 # The Great AJAX Adventure
         if (my $notice = $post->at('.notice') ) {
-    my $eres = $ua->get("https://$domain/app.php/history/getposthistory?postid=$pid")->res;
+    my $eres = cget("https://$domain/app.php/history/getposthistory?postid=$pid")->res;
     my $adom = $eres->dom();
     if ($adom->at("#historyline_$pid")) {
 $last_editor = $adom->at('a')->text;
