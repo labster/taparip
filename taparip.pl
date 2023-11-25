@@ -201,7 +201,7 @@ sub download_thread {
       print " - downloaded - ";
       $dom = $res->dom();
     } else {
-      print "\nCache hit for $schema\n";
+      print " - cached - ";
     }
 
 
