@@ -9,9 +9,10 @@ use DBI;
 use Date::Manip;
 use Date::Manip::Date;
 use List::Util qw<shuffle>;
+use List::Util qw(max);
 use File::Basename qw<dirname>;
 use Digest::MD5 qw(md5_hex);
-
+use Time::HiRes qw(gettimeofday);
 
 binmode STDOUT, ':utf8';
 
@@ -164,6 +165,21 @@ sub cget {
     }
 }
 
+our $now_time = 0;
+my $ltime = 0;
+
+sub do_sleep {
+  my ($seconds, $microseconds) = gettimeofday();
+  $now_time = ($seconds * 1_000_000) + $microseconds;
+
+  $ltime = $ltime || 0;
+  my $tosleep = max(0, ($ltime + $delay) - $now_time);
+  #print(" :: $tosleep ::");
+  usleep $tosleep;
+
+  $ltime = $now_time;
+}
+
 
 sub download_thread {
     my ($topic, $start) = @_;
@@ -178,7 +194,7 @@ sub download_thread {
     if ($dbh->err) { die "Unable to delete $topic: $dbh-err : $dbh->errstr \n"; }
 
     if(! $dom) {
-      usleep $delay;
+      do_sleep();
       my $mojo_obj = $ua->get($root_url, { 'Accept' => 'text/html'}, 'form' => {
           t => $topic,
           start => $start
