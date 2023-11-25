@@ -213,7 +213,10 @@ $edit_count++;});
 # End of the Great AJAX Adventure
         }
 
-        my $content = $post->at('.content')->content;
+        my $attach_node = $post->at('.attachbox');
+        my $content_node = $post->at('.content');
+        my $content = ($content_node ? $content_node->content : '') . 
+                      ($attach_node ? $attach_node->content : '');
         my $sig = $post->at('.signature');
         my $signature = $sig ? $post->at('.signature')->content : undef;
 #say "PID: $pid";
