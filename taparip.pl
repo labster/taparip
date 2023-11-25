@@ -115,11 +115,11 @@ sub cache_get {
     my $cache_f = "$cache_d/$md5";
 
     if (-e $cache_f && -M $cache_f < 1) {
-			  open(my $fh, '<', $cache_f) or die "Can't open $cache_f: $!";
-					my $content = do { local $/; <$fh> };
-					close($fh);
-					return Mojo::DOM->new($content);
-		}
+        open(my $fh, '<', $cache_f) or die "Can't open $cache_f: $!";
+        my $content = do { local $/; <$fh> };
+        close($fh);
+        return Mojo::DOM->new($content);
+    }
 }
 
 sub cache_put {
@@ -129,18 +129,12 @@ sub cache_put {
     my $md5 = md5_hex($filename);
     my $cache_file = "$cache_d/$md5";
 
-    # Extract content from Mojo object if available
     my $content = defined $mojo_object ? $mojo_object->result->body : '';
-
-    # Write content to cache file
-	  unless (open($fh, '>', $cache_file)) {
+    unless (open($fh, '>', $cache_file)) {
         die "Could not open file '$cache_file' for writing: $!";
     }
 
-    # Write content to the file handle
     print $fh $content;
-
-    # Close the file handle
     close($fh);
 }
 
@@ -149,14 +143,13 @@ sub cget {
 
     my $content = cache_get($url);
     if ($content) {
-      return $content;
-		} else {
-   			my $ua = Mojo::UserAgent->new;
+        return $content;
+    } else {
+        my $ua = Mojo::UserAgent->new;
         my $tx = $ua->get($url);
 
         if (my $res = $tx->success) {
             cache_put($url, $res);
-
             return Mojo::DOM->new($content);
         } else {
             my ($err, $code) = $tx->error;
@@ -169,15 +162,15 @@ our $now_time = 0;
 my $ltime = 0;
 
 sub do_sleep {
-  my ($seconds, $microseconds) = gettimeofday();
-  $now_time = ($seconds * 1_000_000) + $microseconds;
+    my ($seconds, $microseconds) = gettimeofday();
+    $now_time = ($seconds * 1_000_000) + $microseconds;
 
-  $ltime = $ltime || 0;
-  my $tosleep = max(0, ($ltime + $delay) - $now_time);
-  #print(" :: $tosleep ::");
-  usleep $tosleep;
+    $ltime = $ltime || 0;
+    my $tosleep = max(0, ($ltime + $delay) - $now_time);
+    #print(" :: $tosleep ::");
+    usleep $tosleep;
 
-  $ltime = $now_time;
+    $ltime = $now_time;
 }
 
 
@@ -307,7 +300,6 @@ $edit_count++;});
         my $content = $post->at('.content')->content;
         my $sig = $post->at('.signature');
         my $signature = $sig ? $post->at('.signature')->content : undef;
-
 #say "PID: $pid";
 #say "TOPICID: $topic_id";
 #say "COUNT: $count";
