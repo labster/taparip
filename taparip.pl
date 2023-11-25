@@ -9,11 +9,15 @@ use DBI;
 use Date::Manip;
 use Date::Manip::Date;
 use List::Util qw<shuffle>;
+use List::Util qw(max);
 use File::Basename qw<dirname>;
+use Digest::MD5 qw(md5_hex);
+use Time::HiRes qw(gettimeofday);
 
 binmode STDOUT, ':utf8';
 
 my $ua = Mojo::UserAgent->new;
+my $cache_d = 'cache/';
 $| = 1;
 
 # Site Configuration
@@ -104,32 +108,112 @@ if (@ARGV) {
     }
 }
 
+sub cache_get {
+    my ($url) = @_;
+
+    my $md5 = md5_hex($url);
+    my $cache_f = "$cache_d/$md5";
+
+    if (-e $cache_f && -M $cache_f < 1) {
+        open(my $fh, '<', $cache_f) or die "Can't open $cache_f: $!";
+        my $content = do { local $/; <$fh> };
+        close($fh);
+        return Mojo::DOM->new($content);
+    }
+}
+
+sub cache_put {
+    my ($filename, $mojo_object) = @_;
+    my $fh;
+
+    my $md5 = md5_hex($filename);
+    my $cache_file = "$cache_d/$md5";
+
+    my $content = defined $mojo_object ? $mojo_object->result->body : '';
+    unless (open($fh, '>', $cache_file)) {
+        die "Could not open file '$cache_file' for writing: $!";
+    }
+
+    print $fh $content;
+    close($fh);
+}
+
+sub cget {
+    my ($url) = @_;
+
+    my $content = cache_get($url);
+    if ($content) {
+        return $content;
+    } else {
+        my $ua = Mojo::UserAgent->new;
+        my $tx = $ua->get($url);
+
+        if (my $res = $tx->success) {
+            cache_put($url, $res);
+            return Mojo::DOM->new($content);
+        } else {
+            my ($err, $code) = $tx->error;
+            die "Failed to fetch content for $url: $err (HTTP status code: $code)";
+        }
+    }
+}
+
+our $now_time = 0;
+my $ltime = 0;
+
+sub do_sleep {
+    my ($seconds, $microseconds) = gettimeofday();
+    $now_time = ($seconds * 1_000_000) + $microseconds;
+
+    $ltime = $ltime || 0;
+    my $tosleep = max(0, ($ltime + $delay) - $now_time);
+    #print(" :: $tosleep ::");
+    usleep $tosleep;
+
+    $ltime = $now_time;
+}
+
 
 sub download_thread {
     my ($topic, $start) = @_;
     $start //= 0;
 
     print "looking for thread t=$topic&start=$start";
-    usleep $delay;
-    my $res = $ua->get($root_url, { 'Accept' => 'text/html'}, 'form' => {
-        t => $topic,
-        start => $start
-    })->res;
 
-    unless ($res->is_success) {
-        if ($res->code eq '404') {
-            $dbh->do("INSERT OR IGNORE INTO bogusthreads VALUES (?)", undef, $topic);
-            say " - 404, bogus topic";
-            return undef;
-        }
-        else {
-            confess "HTTP error: " . $res->code . ' ' . $res->message
-             . ( $start ? " -- died in the middle of t=$topic\&$start=$start" : '');
-        }
+    my $schema = "$root_url :: $topic :: $start";
+    my $dom = cache_get($schema);
+
+    $dbh->do('DELETE from posts where topic = ?', undef, $topic);
+    if ($dbh->err) { die "Unable to delete $topic: $dbh-err : $dbh->errstr \n"; }
+
+    if(! $dom) {
+      do_sleep();
+      my $mojo_obj = $ua->get($root_url, { 'Accept' => 'text/html'}, 'form' => {
+          t => $topic,
+          start => $start
+      });
+      cache_put($schema, $mojo_obj);
+
+      my $res = $mojo_obj->res;
+
+      unless ($res->is_success) {
+          if ($res->code eq '404') {
+              $dbh->do("INSERT OR IGNORE INTO bogusthreads VALUES (?)", undef, $topic);
+              say " - 404, bogus topic";
+              return undef;
+          }
+          else {
+              confess "HTTP error: " . $res->code . ' ' . $res->message
+               . ( $start ? " -- died in the middle of t=$topic\&$start=$start" : '');
+          }
+      }
+      print " - downloaded - ";
+      $dom = $res->dom();
+    } else {
+      print " - cached - ";
     }
-    print " - downloaded - ";
 
-    my $dom = $res->dom();
+
     if ($dom->at('.login-body')) {
         $dbh->do("INSERT OR IGNORE INTO unauthorized VALUES (?)", undef, $topic);
         say "UNAUTHORIZED THREAD";
@@ -196,7 +280,7 @@ if (defined $posttitle && $posttitle ne '') { $posttitle = $posttitle->text(); }
 
 # The Great AJAX Adventure
         if (my $notice = $post->at('.notice') ) {
-    my $eres = $ua->get("https://$domain/app.php/history/getposthistory?postid=$pid")->res;
+    my $eres = cget("https://$domain/app.php/history/getposthistory?postid=$pid")->res;
     my $adom = $eres->dom();
     if ($adom->at("#historyline_$pid")) {
 $last_editor = $adom->at('a')->text;
