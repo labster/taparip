@@ -146,7 +146,7 @@ sub cache_put {
 sub cget {
     my ($url) = @_;
 
-    my $content = cget_get($url);
+    my $content = cache_get($url);
     if ($content) {
       return $content;
 		} else {
@@ -172,35 +172,39 @@ sub download_thread {
     print "looking for thread t=$topic&start=$start";
 
     my $schema = "$root_url :: $topic :: $start";
-    my $mojo_obj = cache_get($schema);
+    my $dom = cache_get($schema);
 
-    if(! $mojo_obj) {
+    $dbh->do('DELETE from posts where topic = ?', undef, $topic);
+    if ($dbh->err) { die "Unable to delete $topic: $dbh-err : $dbh->errstr \n"; }
+
+    if(! $dom) {
       usleep $delay;
-      $mojo_obj = $ua->get($root_url, { 'Accept' => 'text/html'}, 'form' => {
+      my $mojo_obj = $ua->get($root_url, { 'Accept' => 'text/html'}, 'form' => {
           t => $topic,
           start => $start
       });
       cache_put($schema, $mojo_obj);
+
+      my $res = $mojo_obj->res;
+
+      unless ($res->is_success) {
+          if ($res->code eq '404') {
+              $dbh->do("INSERT OR IGNORE INTO bogusthreads VALUES (?)", undef, $topic);
+              say " - 404, bogus topic";
+              return undef;
+          }
+          else {
+              confess "HTTP error: " . $res->code . ' ' . $res->message
+               . ( $start ? " -- died in the middle of t=$topic\&$start=$start" : '');
+          }
+      }
+      print " - downloaded - ";
+      $dom = $res->dom();
     } else {
-      print "Cache hit for $schema";
+      print "\nCache hit for $schema\n";
     }
 
-    my $res = $mojo_obj->res;
 
-    unless ($res->is_success) {
-        if ($res->code eq '404') {
-            $dbh->do("INSERT OR IGNORE INTO bogusthreads VALUES (?)", undef, $topic);
-            say " - 404, bogus topic";
-            return undef;
-        }
-        else {
-            confess "HTTP error: " . $res->code . ' ' . $res->message
-             . ( $start ? " -- died in the middle of t=$topic\&$start=$start" : '');
-        }
-    }
-    print " - downloaded - ";
-
-    my $dom = $res->dom();
     if ($dom->at('.login-body')) {
         $dbh->do("INSERT OR IGNORE INTO unauthorized VALUES (?)", undef, $topic);
         say "UNAUTHORIZED THREAD";
@@ -287,6 +291,7 @@ $edit_count++;});
         my $content = $post->at('.content')->content;
         my $sig = $post->at('.signature');
         my $signature = $sig ? $post->at('.signature')->content : undef;
+
 #say "PID: $pid";
 #say "TOPICID: $topic_id";
 #say "COUNT: $count";
