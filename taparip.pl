@@ -248,7 +248,7 @@ if ($dbh->err) { die "Import failed: $dbh-err : $dbh->errstr \n"; }
             $post_count =~ s/\D//g;
             $dbh->do("INSERT INTO users (username, join_date, post_count, rank) VALUES (?, ?, ?, ?)", undef,
                 $author, $join_date, $post_count, $rank
-            ) or die "Couldn't insert user $author";
+            ) or print "Couldn't insert user $author";
             $seen_users{$author} = 1;
         }
     });
